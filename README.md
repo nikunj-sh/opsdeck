@@ -3,6 +3,8 @@
 A sleek, **single-file**, 100% client-side DevOps cheat-sheet and interactive CLI command generator.
 No backend, no build step, no telemetry — open `index.html` and go. Works fully offline.
 
+**🌐 Live:** [opsdeck.nikunjvasava.me](https://opsdeck.nikunjvasava.me) · **Repo:** [nikunj-sh/opsdeck](https://github.com/nikunj-sh/opsdeck)
+
 ![stack](https://img.shields.io/badge/stack-Tailwind%20%C2%B7%20Alpine.js%20%C2%B7%20Fuse.js-10b981)
 
 ## Features
