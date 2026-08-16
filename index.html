@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpsDeck — Terminal & DevOps Cheat-Sheet & Command Generator</title>
+  <meta name="description" content="OpsDeck: an offline, client-side DevOps cheat-sheet and interactive CLI command generator for Kubernetes, Linux, Docker, Git and Networking." />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="anonymous" referrerpolicy="no-referrer" />
+  <!-- Fuse.js (fuzzy search) -->
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <!-- JetBrains Mono + Fira Code -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'monospace'],
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    html { scroll-behavior: smooth; }
+    body { -webkit-font-smoothing: antialiased; }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: #09090b; }
+    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 6px; border: 2px solid #09090b; }
+    ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+    /* Subtle grid backdrop */
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(39,39,42,0.35) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(39,39,42,0.35) 1px, transparent 1px);
+      background-size: 42px 42px;
+      background-position: -1px -1px;
+    }
+
+    [x-cloak] { display: none !important; }
+
+    /* Toggle switch */
+    .switch { position: relative; display: inline-flex; height: 1.4rem; width: 2.5rem; flex-shrink: 0; cursor: pointer; border-radius: 9999px; transition: background-color .2s; }
+    .switch-knob { position: absolute; top: 2px; left: 2px; height: calc(1.4rem - 4px); width: calc(1.4rem - 4px); border-radius: 9999px; background: #fafafa; transition: transform .2s; }
+
+    .card { transition: border-color .18s, box-shadow .18s, transform .18s; }
+    .card:hover { box-shadow: 0 0 0 1px rgba(52,211,153,0.12), 0 12px 40px -18px rgba(16,185,129,0.35); }
+
+    .cmd-block { word-break: break-word; }
+
+    /* Blinking cursor */
+    @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+    .cursor::after { content:'▌'; margin-left:2px; color:#34d399; animation: blink 1.1s steps(1) infinite; }
+
+    mark { background: rgba(56,189,248,0.25); color: #7dd3fc; border-radius: 2px; padding: 0 1px; }
+  </style>
+</head>
+
+<body
+  class="bg-zinc-950 text-zinc-200 font-sans min-h-screen antialiased"
+  x-data="opsdeck()"
+  x-init="init()"
+  @keydown.window="onGlobalKey($event)"
+>
+  <!-- ============ TOAST ============ -->
+  <div
+    x-cloak
+    x-show="toast.show"
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0 translate-y-3"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-zinc-900/95 backdrop-blur px-4 py-2.5 text-sm shadow-2xl shadow-emerald-900/40"
+  >
+    <i class="fa-solid fa-circle-check text-emerald-400"></i>
+    <span class="font-mono text-emerald-300" x-text="toast.msg"></span>
+  </div>
+
+  <!-- ============ HEADER ============ -->
+  <header class="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur-xl">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6">
+      <div class="flex items-center gap-4 py-3">
+        <!-- Logo -->
+        <div class="flex items-center gap-2.5 shrink-0">
+          <div class="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-sky-600 shadow-lg shadow-emerald-900/40">
+            <i class="fa-solid fa-terminal text-zinc-950 text-sm"></i>
+          </div>
+          <div class="leading-tight">
+            <div class="font-mono font-bold tracking-tight text-zinc-100">Ops<span class="text-emerald-400">Deck</span></div>
+            <div class="text-[10px] uppercase tracking-widest text-zinc-500 hidden sm:block">DevOps Command Generator</div>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div class="relative flex-1 max-w-2xl mx-auto">
+          <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm"></i>
+          <input
+            x-ref="search"
+            x-model="query"
+            @input="runSearch()"
+            @keydown.escape="query=''; runSearch(); $event.target.blur()"
+            type="text"
+            placeholder="Search commands, builders, tags…"
+            class="w-full rounded-lg border border-zinc-800 bg-zinc-900/70 py-2.5 pl-10 pr-24 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/40 font-mono"
+          />
+          <div class="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            <template x-if="query">
+              <button @click="query=''; runSearch(); $refs.search.focus()" class="grid h-6 w-6 place-items-center rounded text-zinc-500 hover:text-zinc-200">
+                <i class="fa-solid fa-xmark text-xs"></i>
+              </button>
+            </template>
+            <kbd class="hidden sm:inline-flex items-center gap-0.5 rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
+              <span x-text="isMac ? '⌘' : 'Ctrl'"></span>K
+            </kbd>
+          </div>
+        </div>
+
+        <!-- Right actions -->
+        <div class="hidden md:flex items-center gap-2 shrink-0">
+          <a href="https://github.com" target="_blank" rel="noreferrer" class="grid h-9 w-9 place-items-center rounded-lg border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 transition" title="GitHub">
+            <i class="fa-brands fa-github"></i>
+          </a>
+        </div>
+      </div>
+
+      <!-- Category pills -->
+      <div class="flex items-center gap-2 overflow-x-auto pb-3 pt-0.5 -mx-1 px-1 scrollbar-none">
+        <template x-for="cat in categories" :key="cat.id">
+          <button
+            @click="setCategory(cat.id)"
+            :class="activeCategory === cat.id
+              ? 'border-transparent bg-gradient-to-r ' + cat.grad + ' text-zinc-950 shadow'
+              : 'border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700'"
+            class="group inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-medium transition"
+          >
+            <i :class="cat.icon" class="text-[11px]"></i>
+            <span x-text="cat.label"></span>
+            <span
+              x-show="cat.id !== 'all'"
+              :class="activeCategory === cat.id ? 'bg-zinc-950/20 text-zinc-900' : 'bg-zinc-800 text-zinc-500'"
+              class="ml-0.5 rounded-full px-1.5 text-[10px] font-mono"
+              x-text="countFor(cat.id)"
+            ></span>
+          </button>
+        </template>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ HERO ============ -->
+  <section class="grid-bg border-b border-zinc-800/60">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 py-10 sm:py-14">
+      <div class="max-w-3xl">
+        <div class="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3 py-1 text-xs text-emerald-300 mb-4">
+          <span class="relative flex h-2 w-2">
+            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+          </span>
+          100% client-side · offline-capable · zero telemetry
+        </div>
+        <h1 class="font-mono text-3xl sm:text-4xl font-bold tracking-tight text-zinc-100">
+          Stop googling flags. <span class="text-emerald-400 cursor">Build the command.</span>
+        </h1>
+        <p class="mt-3 text-zinc-400 text-sm sm:text-base leading-relaxed">
+          Interactive command builders and a curated snippet vault for Kubernetes, Linux, Docker, Git & TLS.
+          Everything runs in your browser — paste secrets safely, they never leave the tab.
+        </p>
+        <div class="mt-5 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+          <span class="inline-flex items-center gap-1.5"><i class="fa-solid fa-bolt text-amber-400"></i> Fuzzy search</span>
+          <span class="inline-flex items-center gap-1.5"><i class="fa-solid fa-keyboard text-sky-400"></i> <kbd class="rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5 font-mono">/</kbd> to focus</span>
+          <span class="inline-flex items-center gap-1.5"><i class="fa-solid fa-copy text-emerald-400"></i> One-click copy</span>
+          <span class="inline-flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk text-fuchsia-400"></i> Custom snippets saved locally</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main class="mx-auto max-w-7xl px-4 sm:px-6 py-10 space-y-14">
+
+    <!-- ================= SEARCH RESULTS (only while searching) ================= -->
+    <section x-show="query.trim().length" x-cloak>
+      <div class="flex items-center gap-3 mb-5">
+        <h2 class="font-mono text-lg font-semibold text-zinc-100">
+          <i class="fa-solid fa-magnifying-glass text-emerald-400 mr-1"></i>
+          Results
+        </h2>
+        <span class="text-xs text-zinc-500 font-mono" x-text="'“' + query + '” · ' + searchResults.length + ' match' + (searchResults.length===1?'':'es')"></span>
+      </div>
+
+      <template x-if="searchResults.length === 0">
+        <div class="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/30 p-10 text-center">
+          <i class="fa-solid fa-ghost text-3xl text-zinc-700"></i>
+          <p class="mt-3 text-sm text-zinc-500">No commands match <span class="font-mono text-zinc-300" x-text="query"></span>.</p>
+        </div>
+      </template>
+
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <template x-for="item in searchResults" :key="item.id">
+          <div class="card group rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 flex flex-col">
+            <div class="flex items-start justify-between gap-2 mb-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <i :class="catIcon(item.category)" class="text-xs shrink-0"></i>
+                <h3 class="font-mono text-sm font-semibold text-zinc-100 truncate" x-html="highlight(item.title)"></h3>
+              </div>
+              <button @click="copy(item.command, $event)" class="shrink-0 grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy">
+                <i class="fa-regular fa-copy text-xs"></i>
+              </button>
+            </div>
+            <p class="text-xs text-zinc-500 mb-3 leading-relaxed" x-html="highlight(item.description)"></p>
+            <pre class="cmd-block mt-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] font-mono text-emerald-300 whitespace-pre-wrap"><code x-text="item.command"></code></pre>
+            <div class="mt-2.5 flex flex-wrap gap-1.5">
+              <template x-for="t in item.tags" :key="t">
+                <span class="rounded bg-zinc-800/70 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400" x-text="'#'+t"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ================= DEFAULT VIEW (hidden while searching) ================= -->
+    <div x-show="!query.trim().length" class="space-y-16">
+
+      <!-- ========== INTERACTIVE BUILDERS ========== -->
+      <section x-show="showSection('builders')">
+        <div class="flex items-center gap-3 mb-6">
+          <div class="grid h-9 w-9 place-items-center rounded-lg bg-sky-500/10 border border-sky-500/20"><i class="fa-solid fa-sliders text-sky-400"></i></div>
+          <div>
+            <h2 class="font-mono text-xl font-bold text-zinc-100">Command Builders</h2>
+            <p class="text-xs text-zinc-500">Toggle options → get a copy-ready one-liner.</p>
+          </div>
+        </div>
+
+        <div class="grid gap-5 lg:grid-cols-2">
+
+          <!-- ---- K8s Debugger ---- -->
+          <div x-show="builderVisible('Kubernetes')" class="card rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+            <div class="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/60 px-4 py-3">
+              <i class="fa-solid fa-dharmachakra text-sky-400"></i>
+              <h3 class="font-mono text-sm font-semibold text-zinc-100">Kubernetes Debugger</h3>
+              <span class="ml-auto text-[10px] font-mono uppercase tracking-wider text-sky-400/70">kubectl</span>
+            </div>
+            <div class="p-4 space-y-3" x-data="{}">
+              <div class="grid grid-cols-2 gap-3">
+                <label class="block">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Pod name</span>
+                  <input x-model="k8s.pod" type="text" placeholder="web-7d9f" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-sky-500/60" />
+                </label>
+                <label class="block">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Namespace</span>
+                  <input x-model="k8s.ns" type="text" placeholder="default" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-sky-500/60" />
+                </label>
+              </div>
+
+              <div class="space-y-1.5 pt-1">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-zinc-300">Action</span>
+                </div>
+                <div class="grid grid-cols-1 gap-1.5">
+                  <template x-for="opt in [
+                    {v:'exec', l:'Exec into shell', i:'fa-terminal'},
+                    {v:'debug', l:'Ephemeral debug container (busybox)', i:'fa-bug'},
+                    {v:'logs', l:'Stream logs (--tail --follow)', i:'fa-scroll'},
+                    {v:'pf', l:'Port-forward', i:'fa-plug'}
+                  ]" :key="opt.v">
+                    <button @click="k8s.action = opt.v"
+                      :class="k8s.action===opt.v ? 'border-sky-500/50 bg-sky-500/10 text-sky-200' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'"
+                      class="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition text-left">
+                      <i :class="'fa-solid '+opt.i" class="w-4 text-center"></i>
+                      <span x-text="opt.l"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- action-specific -->
+              <div x-show="k8s.action==='logs'" class="flex items-center gap-3" x-cloak>
+                <label class="text-xs text-zinc-400">--tail
+                  <input x-model.number="k8s.tail" type="number" min="1" class="ml-1 w-20 rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs font-mono text-zinc-100 outline-none focus:border-sky-500/60" />
+                </label>
+                <label class="inline-flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                  <span @click="k8s.follow=!k8s.follow" :class="k8s.follow?'bg-sky-500':'bg-zinc-700'" class="switch"><span class="switch-knob" :style="k8s.follow?'transform:translateX(1.1rem)':''"></span></span>
+                  --follow
+                </label>
+              </div>
+
+              <div x-show="k8s.action==='pf'" class="space-y-2" x-cloak>
+                <span class="text-[11px] uppercase tracking-wide text-zinc-500">Port mappings (local:remote)</span>
+                <template x-for="(p, idx) in k8s.ports" :key="idx">
+                  <div class="flex items-center gap-2">
+                    <input x-model="k8s.ports[idx]" placeholder="8080:80" class="flex-1 rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs font-mono text-zinc-100 outline-none focus:border-sky-500/60" />
+                    <button @click="k8s.ports.splice(idx,1)" x-show="k8s.ports.length>1" class="grid h-6 w-6 place-items-center rounded text-zinc-500 hover:text-red-400"><i class="fa-solid fa-xmark text-xs"></i></button>
+                  </div>
+                </template>
+                <button @click="k8s.ports.push('')" class="text-xs text-sky-400 hover:text-sky-300"><i class="fa-solid fa-plus mr-1"></i>add port</button>
+              </div>
+
+              <div x-show="k8s.action==='debug'" class="flex items-center gap-3" x-cloak>
+                <label class="text-xs text-zinc-400">--image
+                  <input x-model="k8s.image" placeholder="busybox" class="ml-1 w-32 rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs font-mono text-zinc-100 outline-none focus:border-sky-500/60" />
+                </label>
+              </div>
+
+              <div>
+                <div class="mt-1 flex items-center justify-between">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Generated</span>
+                  <button @click="copy(buildK8s(), $event)" class="inline-flex items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-200 hover:bg-sky-500/20 transition">
+                    <i class="fa-regular fa-copy"></i> Copy
+                  </button>
+                </div>
+                <pre class="cmd-block mt-1.5 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs font-mono text-emerald-300 whitespace-pre-wrap"><code x-text="buildK8s()"></code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---- Chmod Visualizer ---- -->
+          <div x-show="builderVisible('Linux / SysAdmin')" class="card rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+            <div class="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/60 px-4 py-3">
+              <i class="fa-solid fa-lock text-amber-400"></i>
+              <h3 class="font-mono text-sm font-semibold text-zinc-100">Chmod Permission Visualizer</h3>
+              <span class="ml-auto text-[10px] font-mono uppercase tracking-wider text-amber-400/70">chmod</span>
+            </div>
+            <div class="p-4 space-y-3">
+              <div class="overflow-hidden rounded-lg border border-zinc-800">
+                <table class="w-full text-center text-xs">
+                  <thead class="bg-zinc-900/60 text-zinc-400">
+                    <tr>
+                      <th class="py-2 font-medium text-left pl-3">Who</th>
+                      <th class="py-2 font-medium">Read (4)</th>
+                      <th class="py-2 font-medium">Write (2)</th>
+                      <th class="py-2 font-medium">Exec (1)</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-zinc-800">
+                    <template x-for="grp in ['user','group','others']" :key="grp">
+                      <tr>
+                        <td class="py-2 pl-3 text-left font-mono text-zinc-300 capitalize" x-text="grp"></td>
+                        <template x-for="perm in ['r','w','x']" :key="perm">
+                          <td class="py-2">
+                            <input type="checkbox" x-model="chmod[grp][perm]"
+                              class="h-4 w-4 cursor-pointer rounded border-zinc-600 bg-zinc-800 text-amber-500 focus:ring-amber-500/40 accent-amber-500" />
+                          </td>
+                        </template>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 pt-1">
+                <template x-for="preset in [['755','rwxr-xr-x'],['644','rw-r--r--'],['600','rw-------'],['777','rwxrwxrwx'],['700','rwx------']]" :key="preset[0]">
+                  <button @click="applyChmodPreset(preset[0])" class="rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1 font-mono text-[11px] text-zinc-400 hover:border-amber-500/40 hover:text-amber-300 transition" x-text="preset[0]"></button>
+                </template>
+              </div>
+
+              <label class="block">
+                <span class="text-[11px] uppercase tracking-wide text-zinc-500">Target path</span>
+                <input x-model="chmod.path" type="text" placeholder="./deploy.sh" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-amber-500/60" />
+              </label>
+              <label class="inline-flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                <span @click="chmod.recursive=!chmod.recursive" :class="chmod.recursive?'bg-amber-500':'bg-zinc-700'" class="switch"><span class="switch-knob" :style="chmod.recursive?'transform:translateX(1.1rem)':''"></span></span>
+                Recursive (-R)
+              </label>
+
+              <div class="grid grid-cols-3 gap-2 pt-1">
+                <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 text-center">
+                  <div class="text-[10px] uppercase tracking-wide text-zinc-500">Octal</div>
+                  <div class="font-mono text-lg font-bold text-amber-300" x-text="chmodOctal()"></div>
+                </div>
+                <div class="rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 text-center col-span-2">
+                  <div class="text-[10px] uppercase tracking-wide text-zinc-500">Symbolic</div>
+                  <div class="font-mono text-sm font-semibold text-emerald-300 truncate pt-1" x-text="chmodSymbolic() || '—'"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Generated</span>
+                  <button @click="copy(buildChmod(), $event)" class="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-500/20 transition">
+                    <i class="fa-regular fa-copy"></i> Copy
+                  </button>
+                </div>
+                <pre class="cmd-block mt-1.5 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs font-mono text-emerald-300 whitespace-pre-wrap"><code x-text="buildChmod()"></code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---- Rsync Generator ---- -->
+          <div x-show="builderVisible('Linux / SysAdmin')" class="card rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+            <div class="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/60 px-4 py-3">
+              <i class="fa-solid fa-right-left text-emerald-400"></i>
+              <h3 class="font-mono text-sm font-semibold text-zinc-100">Rsync & Archive Generator</h3>
+              <span class="ml-auto text-[10px] font-mono uppercase tracking-wider text-emerald-400/70">rsync</span>
+            </div>
+            <div class="p-4 space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <label class="block">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Source</span>
+                  <input x-model="rsync.src" type="text" placeholder="./src/" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-emerald-500/60" />
+                </label>
+                <label class="block">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Destination</span>
+                  <input x-model="rsync.dst" type="text" placeholder="user@host:/var/www/" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-emerald-500/60" />
+                </label>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <template x-for="sw in [
+                  {k:'archive', l:'Archive -avzP', d:'preserve perms/times, compress, progress'},
+                  {k:'dryRun', l:'Dry run', d:'--dry-run'},
+                  {k:'del', l:'Delete extra', d:'--delete'},
+                  {k:'ssh', l:'Over SSH', d:'-e ssh'}
+                ]" :key="sw.k">
+                  <label class="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 cursor-pointer">
+                    <span @click="rsync[sw.k]=!rsync[sw.k]" :class="rsync[sw.k]?'bg-emerald-500':'bg-zinc-700'" class="switch"><span class="switch-knob" :style="rsync[sw.k]?'transform:translateX(1.1rem)':''"></span></span>
+                    <span class="min-w-0">
+                      <span class="block text-xs text-zinc-200" x-text="sw.l"></span>
+                      <span class="block text-[10px] text-zinc-500 truncate" x-text="sw.d"></span>
+                    </span>
+                  </label>
+                </template>
+              </div>
+
+              <div class="space-y-1.5">
+                <span class="text-[11px] uppercase tracking-wide text-zinc-500">Excludes</span>
+                <template x-for="(ex, idx) in rsync.excludes" :key="idx">
+                  <div class="flex items-center gap-2">
+                    <input x-model="rsync.excludes[idx]" placeholder="node_modules" class="flex-1 rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs font-mono text-zinc-100 outline-none focus:border-emerald-500/60" />
+                    <button @click="rsync.excludes.splice(idx,1)" class="grid h-6 w-6 place-items-center rounded text-zinc-500 hover:text-red-400"><i class="fa-solid fa-xmark text-xs"></i></button>
+                  </div>
+                </template>
+                <button @click="rsync.excludes.push('')" class="text-xs text-emerald-400 hover:text-emerald-300"><i class="fa-solid fa-plus mr-1"></i>add exclude</button>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Generated</span>
+                  <button @click="copy(buildRsync(), $event)" class="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20 transition">
+                    <i class="fa-regular fa-copy"></i> Copy
+                  </button>
+                </div>
+                <pre class="cmd-block mt-1.5 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs font-mono text-emerald-300 whitespace-pre-wrap"><code x-text="buildRsync()"></code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---- Base64 / Secret Tool ---- -->
+          <div x-show="builderVisible('Kubernetes')" class="card rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+            <div class="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/60 px-4 py-3">
+              <i class="fa-solid fa-shield-halved text-fuchsia-400"></i>
+              <h3 class="font-mono text-sm font-semibold text-zinc-100">K8s Secret & Base64 Tool</h3>
+              <span class="ml-auto text-[10px] font-mono uppercase tracking-wider text-fuchsia-400/70">in-memory</span>
+            </div>
+            <div class="p-4 space-y-3">
+              <div class="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1 w-fit">
+                <button @click="b64.mode='decode'" :class="b64.mode==='decode'?'bg-fuchsia-500/20 text-fuchsia-200':'text-zinc-400'" class="rounded px-3 py-1 text-xs font-medium transition">Decode</button>
+                <button @click="b64.mode='encode'" :class="b64.mode==='encode'?'bg-fuchsia-500/20 text-fuchsia-200':'text-zinc-400'" class="rounded px-3 py-1 text-xs font-medium transition">Encode</button>
+                <button @click="b64.mode='yaml'" :class="b64.mode==='yaml'?'bg-fuchsia-500/20 text-fuchsia-200':'text-zinc-400'" class="rounded px-3 py-1 text-xs font-medium transition">Decode YAML Secret</button>
+              </div>
+
+              <div class="rounded-md border border-fuchsia-500/20 bg-fuchsia-500/5 px-2.5 py-1.5 text-[11px] text-fuchsia-200/80">
+                <i class="fa-solid fa-lock text-[10px] mr-1"></i> Runs entirely in this tab. Nothing is uploaded.
+              </div>
+
+              <label class="block">
+                <span class="text-[11px] uppercase tracking-wide text-zinc-500" x-text="b64.mode==='yaml' ? 'Paste secret manifest (data: block)' : (b64.mode==='decode' ? 'Paste base64' : 'Paste plaintext')"></span>
+                <textarea x-model="b64.input" @input="runB64()" rows="4" spellcheck="false"
+                  class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-mono text-zinc-100 outline-none focus:border-fuchsia-500/60 resize-y"
+                  :placeholder="b64.mode==='yaml' ? 'data:\n  DB_PASS: c3VwZXJzZWNyZXQ=' : (b64.mode==='decode' ? 'c3VwZXJzZWNyZXQ=' : 'supersecret')"></textarea>
+              </label>
+
+              <div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Output</span>
+                  <button @click="copy(b64.output, $event)" x-show="b64.output" class="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-fuchsia-500/10 px-2.5 py-1 text-[11px] font-medium text-fuchsia-200 hover:bg-fuchsia-500/20 transition">
+                    <i class="fa-regular fa-copy"></i> Copy
+                  </button>
+                </div>
+                <pre class="cmd-block mt-1.5 min-h-[3rem] rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs font-mono whitespace-pre-wrap"
+                  :class="b64.error ? 'text-red-400' : 'text-emerald-300'"><code x-text="b64.error || b64.output || '…'"></code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---- OpenSSL Inspector ---- -->
+          <div x-show="builderVisible('Networking & SSL')" class="card rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden lg:col-span-2">
+            <div class="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/60 px-4 py-3">
+              <i class="fa-solid fa-certificate text-rose-400"></i>
+              <h3 class="font-mono text-sm font-semibold text-zinc-100">OpenSSL / TLS Certificate Inspector</h3>
+              <span class="ml-auto text-[10px] font-mono uppercase tracking-wider text-rose-400/70">openssl</span>
+            </div>
+            <div class="p-4 grid md:grid-cols-2 gap-4">
+              <div class="space-y-3">
+                <label class="block">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Operation</span>
+                  <select x-model="ssl.op" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-mono text-zinc-100 outline-none focus:border-rose-500/60">
+                    <option value="expiry">Remote cert expiry check</option>
+                    <option value="read">Read .crt / .pem details</option>
+                    <option value="match">Validate key ↔ CSR ↔ cert match</option>
+                    <option value="chain">Show full chain from server</option>
+                    <option value="csr">Generate CSR + private key</option>
+                  </select>
+                </label>
+
+                <template x-if="['expiry','chain'].includes(ssl.op)">
+                  <div class="grid grid-cols-3 gap-2">
+                    <label class="col-span-2 block">
+                      <span class="text-[11px] uppercase tracking-wide text-zinc-500">Host</span>
+                      <input x-model="ssl.host" placeholder="example.com" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-rose-500/60" />
+                    </label>
+                    <label class="block">
+                      <span class="text-[11px] uppercase tracking-wide text-zinc-500">Port</span>
+                      <input x-model="ssl.port" placeholder="443" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-rose-500/60" />
+                    </label>
+                  </div>
+                </template>
+
+                <template x-if="['read','match'].includes(ssl.op)">
+                  <label class="block">
+                    <span class="text-[11px] uppercase tracking-wide text-zinc-500">Certificate file</span>
+                    <input x-model="ssl.file" placeholder="cert.pem" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-rose-500/60" />
+                  </label>
+                </template>
+
+                <template x-if="ssl.op==='match'">
+                  <div class="grid grid-cols-2 gap-2">
+                    <label class="block">
+                      <span class="text-[11px] uppercase tracking-wide text-zinc-500">Key file</span>
+                      <input x-model="ssl.key" placeholder="private.key" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-rose-500/60" />
+                    </label>
+                    <label class="block">
+                      <span class="text-[11px] uppercase tracking-wide text-zinc-500">CSR file</span>
+                      <input x-model="ssl.csr" placeholder="request.csr" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-rose-500/60" />
+                    </label>
+                  </div>
+                </template>
+
+                <template x-if="ssl.op==='csr'">
+                  <label class="block">
+                    <span class="text-[11px] uppercase tracking-wide text-zinc-500">Common Name (domain)</span>
+                    <input x-model="ssl.host" placeholder="example.com" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-rose-500/60" />
+                  </label>
+                </template>
+              </div>
+
+              <div class="flex flex-col">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] uppercase tracking-wide text-zinc-500">Generated command</span>
+                  <button @click="copy(buildSSL(), $event)" class="inline-flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-200 hover:bg-rose-500/20 transition">
+                    <i class="fa-regular fa-copy"></i> Copy
+                  </button>
+                </div>
+                <pre class="cmd-block mt-1.5 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs font-mono text-emerald-300 whitespace-pre-wrap"><code x-text="buildSSL()"></code></pre>
+                <p class="mt-2 text-[11px] text-zinc-500 leading-relaxed" x-text="sslHint()"></p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ========== CUSTOM SNIPPETS ========== -->
+      <section>
+        <div class="flex items-center gap-3 mb-6">
+          <div class="grid h-9 w-9 place-items-center rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20"><i class="fa-solid fa-star text-fuchsia-400"></i></div>
+          <div class="flex-1">
+            <h2 class="font-mono text-xl font-bold text-zinc-100">Your Snippets</h2>
+            <p class="text-xs text-zinc-500">Saved to <span class="font-mono">localStorage</span> — private to this browser.</p>
+          </div>
+          <button @click="customForm.open = !customForm.open" class="inline-flex items-center gap-2 rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/10 px-3 py-2 text-xs font-medium text-fuchsia-200 hover:bg-fuchsia-500/20 transition">
+            <i class="fa-solid" :class="customForm.open ? 'fa-xmark' : 'fa-plus'"></i>
+            <span x-text="customForm.open ? 'Close' : 'Add snippet'"></span>
+          </button>
+        </div>
+
+        <div x-show="customForm.open" x-cloak x-collapse class="mb-5 rounded-2xl border border-fuchsia-500/20 bg-zinc-900/40 p-4">
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="block">
+              <span class="text-[11px] uppercase tracking-wide text-zinc-500">Title</span>
+              <input x-model="customForm.title" placeholder="My deploy shortcut" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:border-fuchsia-500/60" />
+            </label>
+            <label class="block">
+              <span class="text-[11px] uppercase tracking-wide text-zinc-500">Category</span>
+              <select x-model="customForm.category" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:border-fuchsia-500/60">
+                <template x-for="c in categories.filter(c=>c.id!=='all')" :key="c.id"><option :value="c.label" x-text="c.label"></option></template>
+              </select>
+            </label>
+            <label class="block sm:col-span-2">
+              <span class="text-[11px] uppercase tracking-wide text-zinc-500">Description</span>
+              <input x-model="customForm.description" placeholder="What it does…" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:border-fuchsia-500/60" />
+            </label>
+            <label class="block sm:col-span-2">
+              <span class="text-[11px] uppercase tracking-wide text-zinc-500">Command</span>
+              <textarea x-model="customForm.command" rows="2" spellcheck="false" placeholder="kubectl rollout restart deploy/api" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-xs font-mono text-emerald-300 outline-none focus:border-fuchsia-500/60 resize-y"></textarea>
+            </label>
+            <label class="block sm:col-span-2">
+              <span class="text-[11px] uppercase tracking-wide text-zinc-500">Tags (comma separated)</span>
+              <input x-model="customForm.tags" placeholder="deploy, api, prod" class="mt-1 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs font-mono text-zinc-100 outline-none focus:border-fuchsia-500/60" />
+            </label>
+          </div>
+          <div class="mt-3 flex items-center gap-2">
+            <button @click="saveCustom()" class="inline-flex items-center gap-2 rounded-md bg-fuchsia-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-fuchsia-400 transition"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+            <button @click="resetCustomForm()" class="rounded-md border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-100 transition">Reset</button>
+            <span x-show="customForm.err" x-text="customForm.err" class="text-xs text-red-400"></span>
+          </div>
+        </div>
+
+        <template x-if="customSnippets.length === 0 && !customForm.open">
+          <div class="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/20 p-8 text-center">
+            <i class="fa-regular fa-bookmark text-2xl text-zinc-700"></i>
+            <p class="mt-2 text-sm text-zinc-500">No custom snippets yet. Add your team's go-to commands.</p>
+          </div>
+        </template>
+
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <template x-for="item in customSnippets" :key="item.id">
+            <div class="card group rounded-xl border border-fuchsia-500/20 bg-zinc-900/40 p-4 flex flex-col">
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <i :class="catIcon(item.category)" class="text-xs shrink-0"></i>
+                  <h3 class="font-mono text-sm font-semibold text-zinc-100 truncate" x-text="item.title"></h3>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button @click="copy(item.command, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy"><i class="fa-regular fa-copy text-xs"></i></button>
+                  <button @click="deleteCustom(item.id)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-red-400 hover:border-red-500/40 transition" title="Delete"><i class="fa-regular fa-trash-can text-xs"></i></button>
+                </div>
+              </div>
+              <p class="text-xs text-zinc-500 mb-3 leading-relaxed" x-text="item.description"></p>
+              <pre class="cmd-block mt-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] font-mono text-emerald-300 whitespace-pre-wrap"><code x-text="item.command"></code></pre>
+              <div class="mt-2.5 flex flex-wrap gap-1.5">
+                <template x-for="t in item.tags" :key="t"><span class="rounded bg-zinc-800/70 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400" x-text="'#'+t"></span></template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- ========== SNIPPET VAULT ========== -->
+      <section>
+        <div class="flex items-center gap-3 mb-6">
+          <div class="grid h-9 w-9 place-items-center rounded-lg bg-emerald-500/10 border border-emerald-500/20"><i class="fa-solid fa-vault text-emerald-400"></i></div>
+          <div>
+            <h2 class="font-mono text-xl font-bold text-zinc-100">Snippet Vault</h2>
+            <p class="text-xs text-zinc-500" x-text="visibleSnippets.length + ' curated commands · click any to copy'"></p>
+          </div>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <template x-for="item in visibleSnippets" :key="item.id">
+            <div class="card group rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 flex flex-col">
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <i :class="catIcon(item.category)" class="text-xs shrink-0"></i>
+                  <h3 class="font-mono text-sm font-semibold text-zinc-100 truncate" x-text="item.title"></h3>
+                </div>
+                <button @click="copy(item.command, $event)" class="shrink-0 grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy"><i class="fa-regular fa-copy text-xs"></i></button>
+              </div>
+              <p class="text-xs text-zinc-500 mb-3 leading-relaxed" x-text="item.description"></p>
+              <pre @click="copy(item.command, $event)" class="cmd-block mt-auto cursor-pointer rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] font-mono text-emerald-300 whitespace-pre-wrap hover:border-emerald-500/30 transition"><code x-text="item.command"></code></pre>
+              <div class="mt-2.5 flex flex-wrap gap-1.5">
+                <template x-for="t in item.tags" :key="t"><span class="rounded bg-zinc-800/70 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400" x-text="'#'+t"></span></template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="border-t border-zinc-800/60 mt-10">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-500">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-terminal text-emerald-400"></i>
+        <span>OpsDeck — built for terminals, runs in your browser. No data leaves this tab.</span>
+      </div>
+      <div class="flex items-center gap-4 font-mono">
+        <span><kbd class="rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5" x-text="isMac?'⌘K':'Ctrl K'"></kbd> search</span>
+        <span><kbd class="rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5">/</kbd> focus</span>
+        <span><kbd class="rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5">Esc</kbd> clear</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Alpine plugins (collapse) + core -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <script>
+    function opsdeck() {
+      return {
+        isMac: /Mac|iPhone|iPad/.test(navigator.platform),
+
+        /* ---------- categories ---------- */
+        categories: [
+          { id: 'all',                 label: 'All',               icon: 'fa-solid fa-border-all', grad: 'from-zinc-200 to-zinc-400' },
+          { id: 'Kubernetes',          label: 'Kubernetes',        icon: 'fa-solid fa-dharmachakra', grad: 'from-sky-400 to-sky-600' },
+          { id: 'Linux / SysAdmin',    label: 'Linux / SysAdmin',  icon: 'fa-brands fa-linux',       grad: 'from-amber-400 to-orange-500' },
+          { id: 'Docker & Containers', label: 'Docker & Containers', icon: 'fa-brands fa-docker',    grad: 'from-sky-400 to-blue-500' },
+          { id: 'Git',                 label: 'Git',               icon: 'fa-brands fa-git-alt',     grad: 'from-orange-400 to-red-500' },
+          { id: 'Networking & SSL',    label: 'Networking & SSL',  icon: 'fa-solid fa-shield-halved', grad: 'from-emerald-400 to-teal-500' },
+        ],
+        activeCategory: 'all',
+
+        /* ---------- data ---------- */
+        snippets: [],
+
+        /* ---------- search ---------- */
+        query: '',
+        fuse: null,
+        searchResults: [],
+
+        /* ---------- toast ---------- */
+        toast: { show: false, msg: '', t: null },
+
+        /* ---------- builders state ---------- */
+        k8s: { pod: 'web-7d9f', ns: 'default', action: 'exec', tail: 100, follow: true, ports: ['8080:80'], image: 'busybox' },
+        chmod: {
+          user:   { r: true,  w: true,  x: true },
+          group:  { r: true,  w: false, x: true },
+          others: { r: true,  w: false, x: true },
+          path: './deploy.sh', recursive: false,
+        },
+        rsync: { src: './src/', dst: 'user@host:/var/www/', archive: true, dryRun: false, del: false, ssh: true, excludes: ['node_modules', '.git'] },
+        b64: { mode: 'decode', input: '', output: '', error: '' },
+        ssl: { op: 'expiry', host: 'example.com', port: '443', file: 'cert.pem', key: 'private.key', csr: 'request.csr' },
+
+        /* ---------- custom snippets ---------- */
+        customSnippets: [],
+        customForm: { open: false, title: '', category: 'Kubernetes', description: '', command: '', tags: '', err: '' },
+
+        /* ================= INIT ================= */
+        init() {
+          this.snippets = SNIPPETS.map((s, i) => ({ id: 'v' + i, ...s }));
+          this.loadCustom();
+          this.buildIndex();
+          window.addEventListener('storage', () => this.loadCustom());
+        },
+
+        buildIndex() {
+          const all = [...this.snippets, ...this.customSnippets];
+          this.fuse = new Fuse(all, {
+            includeScore: true,
+            threshold: 0.38,
+            ignoreLocation: true,
+            keys: [
+              { name: 'title', weight: 0.4 },
+              { name: 'command', weight: 0.3 },
+              { name: 'tags', weight: 0.2 },
+              { name: 'description', weight: 0.15 },
+              { name: 'category', weight: 0.1 },
+            ],
+          });
+        },
+
+        /* ================= SEARCH ================= */
+        runSearch() {
+          const q = this.query.trim();
+          if (!q) { this.searchResults = []; return; }
+          let res = this.fuse.search(q).map(r => r.item);
+          if (this.activeCategory !== 'all') res = res.filter(i => i.category === this.activeCategory);
+          this.searchResults = res;
+        },
+
+        highlight(text) {
+          if (!text) return '';
+          const q = this.query.trim();
+          const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+          if (!q) return esc(text);
+          const terms = q.split(/\s+/).filter(t => t.length > 1).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+          let out = esc(text);
+          terms.forEach(t => { out = out.replace(new RegExp('(' + t + ')', 'ig'), '<mark>$1</mark>'); });
+          return out;
+        },
+
+        setCategory(id) { this.activeCategory = id; if (this.query.trim()) this.runSearch(); },
+        countFor(id) { return this.snippets.filter(s => s.category === id).length; },
+        showSection() { return true; },
+
+        builderVisible(cat) { return this.activeCategory === 'all' || this.activeCategory === cat; },
+
+        get visibleSnippets() {
+          if (this.activeCategory === 'all') return this.snippets;
+          return this.snippets.filter(s => s.category === this.activeCategory);
+        },
+
+        catIcon(cat) {
+          const c = this.categories.find(c => c.id === cat);
+          return (c ? c.icon : 'fa-solid fa-code') + ' ' + this.catColor(cat);
+        },
+        catColor(cat) {
+          return ({
+            'Kubernetes': 'text-sky-400',
+            'Linux / SysAdmin': 'text-amber-400',
+            'Docker & Containers': 'text-blue-400',
+            'Git': 'text-orange-400',
+            'Networking & SSL': 'text-emerald-400',
+          })[cat] || 'text-zinc-400';
+        },
+
+        /* ================= KEYBOARD ================= */
+        onGlobalKey(e) {
+          const tag = (e.target.tagName || '').toLowerCase();
+          const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault(); this.$refs.search.focus(); this.$refs.search.select();
+          } else if (e.key === '/' && !typing) {
+            e.preventDefault(); this.$refs.search.focus();
+          }
+        },
+
+        /* ================= COPY ================= */
+        async copy(text, ev) {
+          const clean = String(text).replace(/^\s*\$\s+/gm, '').trim();
+          try {
+            await navigator.clipboard.writeText(clean);
+          } catch (_) {
+            const ta = document.createElement('textarea');
+            ta.value = clean; document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+          }
+          this.showToast('Copied to clipboard');
+          if (ev) {
+            const btn = ev.currentTarget;
+            const icon = btn.querySelector('i');
+            if (icon) {
+              const prev = icon.className;
+              icon.className = 'fa-solid fa-check text-emerald-400';
+              setTimeout(() => { icon.className = prev; }, 1300);
+            }
+          }
+        },
+
+        showToast(msg) {
+          this.toast.msg = msg; this.toast.show = true;
+          clearTimeout(this.toast.t);
+          this.toast.t = setTimeout(() => { this.toast.show = false; }, 1800);
+        },
+
+        /* ================= K8S BUILDER ================= */
+        buildK8s() {
+          const ns = this.k8s.ns.trim() || 'default';
+          const pod = this.k8s.pod.trim() || '<pod>';
+          const nsFlag = `-n ${ns}`;
+          switch (this.k8s.action) {
+            case 'exec':
+              return `kubectl exec -it ${pod} ${nsFlag} -- sh`;
+            case 'debug':
+              return `kubectl debug -it ${pod} ${nsFlag} --image=${this.k8s.image.trim() || 'busybox'} --target=${pod} --share-processes`;
+            case 'logs': {
+              const tail = Number(this.k8s.tail) > 0 ? `--tail=${this.k8s.tail}` : '';
+              const follow = this.k8s.follow ? '-f' : '';
+              return `kubectl logs ${pod} ${nsFlag} ${tail} ${follow}`.replace(/\s+/g, ' ').trim();
+            }
+            case 'pf': {
+              const ports = this.k8s.ports.map(p => p.trim()).filter(Boolean).join(' ') || '8080:80';
+              return `kubectl port-forward ${pod} ${nsFlag} ${ports}`;
+            }
+          }
+        },
+
+        /* ================= CHMOD ================= */
+        chmodDigit(g) { return (this.chmod[g].r ? 4 : 0) + (this.chmod[g].w ? 2 : 0) + (this.chmod[g].x ? 1 : 0); },
+        chmodOctal() { return '' + this.chmodDigit('user') + this.chmodDigit('group') + this.chmodDigit('others'); },
+        chmodSymbolic() {
+          const parts = [];
+          const map = { user: 'u', group: 'g', others: 'o' };
+          ['user', 'group', 'others'].forEach(g => {
+            let bits = '';
+            if (this.chmod[g].r) bits += 'r';
+            if (this.chmod[g].w) bits += 'w';
+            if (this.chmod[g].x) bits += 'x';
+            if (bits) parts.push(map[g] + '=' + bits);
+          });
+          return parts.join(',');
+        },
+        applyChmodPreset(oct) {
+          ['user', 'group', 'others'].forEach((g, i) => {
+            const d = Number(oct[i]);
+            this.chmod[g].r = !!(d & 4);
+            this.chmod[g].w = !!(d & 2);
+            this.chmod[g].x = !!(d & 1);
+          });
+        },
+        buildChmod() {
+          const R = this.chmod.recursive ? '-R ' : '';
+          const path = this.chmod.path.trim() || '<path>';
+          return `chmod ${R}${this.chmodOctal()} ${path}`;
+        },
+
+        /* ================= RSYNC ================= */
+        buildRsync() {
+          let flags = [];
+          if (this.rsync.archive) flags.push('-avzP'); else flags.push('-v');
+          if (this.rsync.dryRun) flags.push('--dry-run');
+          if (this.rsync.del) flags.push('--delete');
+          if (this.rsync.ssh) flags.push("-e ssh");
+          const ex = this.rsync.excludes.map(e => e.trim()).filter(Boolean).map(e => `--exclude='${e}'`).join(' ');
+          const src = this.rsync.src.trim() || './';
+          const dst = this.rsync.dst.trim() || 'user@host:/dest/';
+          return `rsync ${flags.join(' ')}${ex ? ' ' + ex : ''} ${src} ${dst}`.replace(/\s+/g, ' ').trim();
+        },
+
+        /* ================= BASE64 / SECRET ================= */
+        runB64() {
+          this.b64.error = ''; this.b64.output = '';
+          const inp = this.b64.input;
+          if (!inp.trim()) return;
+          try {
+            if (this.b64.mode === 'encode') {
+              this.b64.output = btoa(unescape(encodeURIComponent(inp)));
+            } else if (this.b64.mode === 'decode') {
+              this.b64.output = decodeURIComponent(escape(atob(inp.trim().replace(/\s+/g, ''))));
+            } else {
+              // yaml: parse key: base64 pairs under data:
+              const lines = inp.split('\n');
+              const out = [];
+              let inData = false;
+              for (const raw of lines) {
+                const line = raw.replace(/\t/g, '  ');
+                if (/^\s*(data|stringData)\s*:\s*$/.test(line)) { inData = true; continue; }
+                if (/^\S/.test(line) && !/^\s/.test(line)) { if (line.trim() && !/:\s*$/.test(line)) inData = false; }
+                const m = line.match(/^\s+([\w.\-]+)\s*:\s*(.+?)\s*$/);
+                if (m) {
+                  const key = m[1]; let val = m[2].replace(/^["']|["']$/g, '');
+                  try {
+                    const dec = decodeURIComponent(escape(atob(val.replace(/\s+/g, ''))));
+                    out.push(`${key}: ${dec}`);
+                  } catch (e) {
+                    out.push(`${key}: ${val}  # (not valid base64)`);
+                  }
+                }
+              }
+              this.b64.output = out.length ? out.join('\n') : '';
+              if (!out.length) this.b64.error = 'No "key: value" pairs found. Paste a Secret with a data: block.';
+            }
+          } catch (e) {
+            this.b64.error = 'Invalid input for ' + this.b64.mode + ' — ' + e.message;
+          }
+        },
+
+        /* ================= OPENSSL ================= */
+        buildSSL() {
+          const host = this.ssl.host.trim() || 'example.com';
+          const port = this.ssl.port.trim() || '443';
+          const file = this.ssl.file.trim() || 'cert.pem';
+          switch (this.ssl.op) {
+            case 'expiry':
+              return `echo | openssl s_client -servername ${host} -connect ${host}:${port} 2>/dev/null | openssl x509 -noout -dates`;
+            case 'read':
+              return `openssl x509 -in ${file} -noout -text`;
+            case 'match':
+              return `openssl x509 -noout -modulus -in ${file} | openssl md5\n` +
+                     `openssl rsa -noout -modulus -in ${this.ssl.key.trim() || 'private.key'} | openssl md5\n` +
+                     `openssl req -noout -modulus -in ${this.ssl.csr.trim() || 'request.csr'} | openssl md5`;
+            case 'chain':
+              return `openssl s_client -showcerts -servername ${host} -connect ${host}:${port} </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer`;
+            case 'csr':
+              return `openssl req -new -newkey rsa:2048 -nodes -keyout ${host}.key -out ${host}.csr -subj "/CN=${host}"`;
+          }
+        },
+        sslHint() {
+          return ({
+            expiry: 'Prints notBefore / notAfter for the live cert served by the host.',
+            read: 'Dumps subject, issuer, SANs, validity and extensions from a local cert.',
+            match: 'All three MD5 hashes must be identical for the key, CSR and cert to match.',
+            chain: 'Lists each certificate in the chain the server presents.',
+            csr: 'Creates a 2048-bit key and CSR non-interactively; add -addext for SANs.',
+          })[this.ssl.op] || '';
+        },
+
+        /* ================= CUSTOM SNIPPETS ================= */
+        STORAGE_KEY: 'opsdeck.custom.v1',
+        loadCustom() {
+          try {
+            const raw = localStorage.getItem(this.STORAGE_KEY);
+            this.customSnippets = raw ? JSON.parse(raw) : [];
+          } catch (e) { this.customSnippets = []; }
+        },
+        persistCustom() {
+          localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.customSnippets));
+          this.buildIndex();
+        },
+        saveCustom() {
+          this.customForm.err = '';
+          if (!this.customForm.title.trim() || !this.customForm.command.trim()) {
+            this.customForm.err = 'Title and command are required.'; return;
+          }
+          const tags = this.customForm.tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean);
+          this.customSnippets.unshift({
+            id: 'c' + Date.now(),
+            custom: true,
+            title: this.customForm.title.trim(),
+            category: this.customForm.category,
+            description: this.customForm.description.trim() || 'Custom snippet',
+            command: this.customForm.command.trim(),
+            tags: tags.length ? tags : ['custom'],
+          });
+          this.persistCustom();
+          this.resetCustomForm();
+          this.customForm.open = false;
+          this.showToast('Snippet saved locally');
+        },
+        deleteCustom(id) {
+          this.customSnippets = this.customSnippets.filter(s => s.id !== id);
+          this.persistCustom();
+          this.showToast('Snippet deleted');
+        },
+        resetCustomForm() {
+          this.customForm.title = '';
+          this.customForm.description = '';
+          this.customForm.command = '';
+          this.customForm.tags = '';
+          this.customForm.category = 'Kubernetes';
+          this.customForm.err = '';
+        },
+      };
+    }
+
+    /* ================= CURATED SNIPPET DATA ================= */
+    const SNIPPETS = [
+      /* ---- Linux I/O & Process Triage ---- */
+      { title: 'Disk usage, top level', category: 'Linux / SysAdmin', description: 'Human-readable sizes of everything one level deep, largest first.', command: 'du -ah -d1 . | sort -hr | head -20', tags: ['disk','du','triage'] },
+      { title: 'Listening ports + PIDs', category: 'Linux / SysAdmin', description: 'Every TCP/UDP listening socket with the owning process.', command: 'ss -tulpn', tags: ['network','ports','ss'] },
+      { title: 'Open files by process', category: 'Linux / SysAdmin', description: 'Which process holds a network connection or a file open.', command: 'lsof -i -P -n | grep LISTEN', tags: ['lsof','files','network'] },
+      { title: 'Live disk I/O by process', category: 'Linux / SysAdmin', description: 'Identify the process hammering the disk (needs root).', command: 'sudo iotop -oPa', tags: ['io','iotop','performance'] },
+      { title: 'Top memory consumers', category: 'Linux / SysAdmin', description: 'Sort running processes by resident memory usage.', command: "ps aux --sort=-%mem | head -10", tags: ['memory','ps','triage'] },
+      { title: 'Follow a log with grep', category: 'Linux / SysAdmin', description: 'Tail a log and highlight matching lines live.', command: 'tail -f /var/log/syslog | grep --line-buffered -i error', tags: ['logs','tail','grep'] },
+      { title: 'Find & delete large files', category: 'Linux / SysAdmin', description: 'Locate files over 500MB under the current tree.', command: "find . -type f -size +500M -exec ls -lh {} \\;", tags: ['find','disk','cleanup'] },
+      { title: 'What is using swap', category: 'Linux / SysAdmin', description: 'Per-process swap usage, largest first.', command: "for f in /proc/*/status; do awk '/VmSwap|Name/{printf $2\" \"$3}END{print \"\"}' $f; done | sort -k2 -n -r | head", tags: ['swap','memory'] },
+
+      /* ---- Docker Housekeeping ---- */
+      { title: 'Prune everything unused', category: 'Docker & Containers', description: 'Remove stopped containers, dangling images, networks and build cache.', command: 'docker system prune -af --volumes', tags: ['prune','cleanup','disk'] },
+      { title: 'Prune build cache only', category: 'Docker & Containers', description: 'Reclaim space from the BuildKit cache without touching images.', command: 'docker builder prune -af', tags: ['buildkit','cache','cleanup'] },
+      { title: 'Inspect container status', category: 'Docker & Containers', description: 'Extract just the running state via a Go template filter.', command: "docker inspect --format '{{.State.Status}} ({{.State.Health.Status}})' <container>", tags: ['inspect','template','status'] },
+      { title: 'Copy file out of container', category: 'Docker & Containers', description: 'Extract a file from a running or stopped container to the host.', command: 'docker cp <container>:/app/config.yaml ./config.yaml', tags: ['cp','files','extract'] },
+      { title: 'Container IP addresses', category: 'Docker & Containers', description: 'List each container name with its network IP.', command: "docker ps -q | xargs docker inspect --format '{{.Name}} {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'", tags: ['inspect','network','ip'] },
+      { title: 'Follow logs with timestamps', category: 'Docker & Containers', description: 'Stream the last 100 lines with timestamps and keep following.', command: 'docker logs -f --tail 100 -t <container>', tags: ['logs','tail','debug'] },
+      { title: 'Shell into a container', category: 'Docker & Containers', description: 'Interactive shell, falling back to sh when bash is absent.', command: 'docker exec -it <container> sh -c "bash || sh"', tags: ['exec','shell','debug'] },
+      { title: 'Disk usage by Docker', category: 'Docker & Containers', description: 'Breakdown of space used by images, containers and volumes.', command: 'docker system df -v', tags: ['disk','df','cleanup'] },
+
+      /* ---- Advanced Git ---- */
+      { title: 'Interactive rebase last N', category: 'Git', description: 'Squash, reword or reorder the last 5 commits.', command: 'git rebase -i HEAD~5', tags: ['rebase','history','squash'] },
+      { title: 'Recover lost commit', category: 'Git', description: 'Find a dangling commit in the reflog and check it out.', command: 'git reflog --date=iso | head -30', tags: ['reflog','recover','undo'] },
+      { title: 'Bisect to find a bad commit', category: 'Git', description: 'Binary-search history between a known good and bad commit.', command: 'git bisect start && git bisect bad && git bisect good <hash>', tags: ['bisect','debug','regression'] },
+      { title: 'Pretty graph log', category: 'Git', description: 'Compact, colored, decorated commit graph across all branches.', command: "git log --graph --oneline --decorate --all", tags: ['log','graph','history'] },
+      { title: 'Undo last commit, keep changes', category: 'Git', description: 'Move HEAD back one commit but leave files staged.', command: 'git reset --soft HEAD~1', tags: ['reset','undo','soft'] },
+      { title: 'Amend author of last commit', category: 'Git', description: 'Fix the author/email on the most recent commit.', command: 'git commit --amend --author="Name <email@x.com>" --no-edit', tags: ['amend','author','fix'] },
+      { title: 'Search history for a string', category: 'Git', description: 'Find every commit that added or removed a string (pickaxe).', command: "git log -S'TODO' --oneline --source --all", tags: ['pickaxe','search','history'] },
+      { title: 'Stash including untracked', category: 'Git', description: 'Stash tracked and untracked changes with a message.', command: 'git stash push -u -m "wip: refactor"', tags: ['stash','wip','untracked'] },
+      { title: 'Prune stale remote branches', category: 'Git', description: 'Delete local refs for branches removed on the remote.', command: 'git fetch -p && git branch -vv | awk "/: gone]/{print \\$1}" | xargs -r git branch -D', tags: ['prune','branches','cleanup'] },
+
+      /* ---- Kubernetes ---- */
+      { title: 'Watch pods across namespace', category: 'Kubernetes', description: 'Live pod status with wide output and node placement.', command: 'kubectl get pods -o wide -w -n <ns>', tags: ['pods','watch','status'] },
+      { title: 'Describe failing pod events', category: 'Kubernetes', description: 'Show recent events sorted by time to explain a crash.', command: "kubectl get events --sort-by=.lastTimestamp -n <ns>", tags: ['events','debug','crash'] },
+      { title: 'Top nodes by resource', category: 'Kubernetes', description: 'CPU and memory usage per node (needs metrics-server).', command: 'kubectl top nodes', tags: ['top','resources','metrics'] },
+      { title: 'Rollout restart a deployment', category: 'Kubernetes', description: 'Trigger a rolling restart without changing the spec.', command: 'kubectl rollout restart deploy/<name> -n <ns>', tags: ['rollout','restart','deploy'] },
+      { title: 'Get all resources in namespace', category: 'Kubernetes', description: 'One shot list of every common resource type.', command: 'kubectl get all -n <ns>', tags: ['get','all','overview'] },
+      { title: 'Decode a secret value', category: 'Kubernetes', description: 'Pull one key from a Secret and base64-decode it.', command: "kubectl get secret <name> -n <ns> -o jsonpath='{.data.password}' | base64 -d", tags: ['secret','base64','decode'] },
+      { title: 'Force delete stuck pod', category: 'Kubernetes', description: 'Remove a pod immediately when it is stuck terminating.', command: 'kubectl delete pod <pod> -n <ns> --grace-period=0 --force', tags: ['delete','force','stuck'] },
+      { title: 'Context & namespace switch', category: 'Kubernetes', description: 'Set the default namespace for the current context.', command: 'kubectl config set-context --current --namespace=<ns>', tags: ['context','namespace','config'] },
+
+      /* ---- Networking & SSL ---- */
+      { title: 'Check cert expiry remotely', category: 'Networking & SSL', description: 'Print notBefore/notAfter dates for a live TLS endpoint.', command: 'echo | openssl s_client -servername example.com -connect example.com:443 2>/dev/null | openssl x509 -noout -dates', tags: ['tls','cert','expiry'] },
+      { title: 'Test a port with nc', category: 'Networking & SSL', description: 'Verbose connectivity check to a host/port with timeout.', command: 'nc -zv -w3 example.com 443', tags: ['netcat','port','connectivity'] },
+      { title: 'DNS lookup, all records', category: 'Networking & SSL', description: 'Query every record type for a domain concisely.', command: 'dig example.com ANY +noall +answer', tags: ['dns','dig','records'] },
+      { title: 'Trace HTTP timing', category: 'Networking & SSL', description: 'Break down DNS, connect, TLS and total time for a request.', command: "curl -w 'dns:%{time_namelookup} connect:%{time_connect} tls:%{time_appconnect} total:%{time_total}\\n' -o /dev/null -s https://example.com", tags: ['curl','timing','http'] },
+      { title: 'Follow redirects verbosely', category: 'Networking & SSL', description: 'Show headers and follow every redirect hop.', command: 'curl -sILv https://example.com 2>&1 | grep -i "location\\|http/"', tags: ['curl','redirect','headers'] },
+      { title: 'Generate self-signed cert', category: 'Networking & SSL', description: 'One-liner self-signed cert + key valid for a year.', command: 'openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"', tags: ['openssl','self-signed','tls'] },
+      { title: 'Show listening + established', category: 'Networking & SSL', description: 'All TCP connections with state and process.', command: 'ss -tanp', tags: ['ss','tcp','connections'] },
+      { title: 'Verify cert against a CA', category: 'Networking & SSL', description: 'Confirm a certificate chains to a given CA bundle.', command: 'openssl verify -CAfile ca-bundle.crt cert.pem', tags: ['openssl','verify','ca'] },
+    ];
+  </script>
+</body>
+</html>
