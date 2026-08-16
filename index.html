@@ -216,9 +216,14 @@
                 <i :class="catIcon(item.category)" class="text-xs shrink-0"></i>
                 <h3 class="font-mono text-sm font-semibold text-zinc-100 truncate" x-html="highlight(item.title)"></h3>
               </div>
-              <button @click="copy(item.command, $event)" class="shrink-0 grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy">
-                <i class="fa-regular fa-copy text-xs"></i>
-              </button>
+              <div class="flex items-center gap-1 shrink-0">
+                <button @click="copyAlias(item, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-sky-300 hover:border-sky-500/40 transition" :title="'Copy as alias: ' + aliasName(item.title)">
+                  <i class="fa-solid fa-terminal text-xs"></i>
+                </button>
+                <button @click="copy(item.command, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy raw command">
+                  <i class="fa-regular fa-copy text-xs"></i>
+                </button>
+              </div>
             </div>
             <p class="text-xs text-zinc-500 mb-3 leading-relaxed" x-html="highlight(item.description)"></p>
             <pre class="cmd-block mt-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] font-mono text-emerald-300 whitespace-pre-wrap"><code x-text="item.command"></code></pre>
@@ -635,7 +640,8 @@
                   <h3 class="font-mono text-sm font-semibold text-zinc-100 truncate" x-text="item.title"></h3>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
-                  <button @click="copy(item.command, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy"><i class="fa-regular fa-copy text-xs"></i></button>
+                  <button @click="copyAlias(item, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-sky-300 hover:border-sky-500/40 transition" :title="'Copy as alias: ' + aliasName(item.title)"><i class="fa-solid fa-terminal text-xs"></i></button>
+                  <button @click="copy(item.command, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy raw command"><i class="fa-regular fa-copy text-xs"></i></button>
                   <button @click="deleteCustom(item.id)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-red-400 hover:border-red-500/40 transition" title="Delete"><i class="fa-regular fa-trash-can text-xs"></i></button>
                 </div>
               </div>
@@ -667,7 +673,10 @@
                   <i :class="catIcon(item.category)" class="text-xs shrink-0"></i>
                   <h3 class="font-mono text-sm font-semibold text-zinc-100 truncate" x-text="item.title"></h3>
                 </div>
-                <button @click="copy(item.command, $event)" class="shrink-0 grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy"><i class="fa-regular fa-copy text-xs"></i></button>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button @click="copyAlias(item, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-sky-300 hover:border-sky-500/40 transition" :title="'Copy as alias: ' + aliasName(item.title)"><i class="fa-solid fa-terminal text-xs"></i></button>
+                  <button @click="copy(item.command, $event)" class="grid h-7 w-7 place-items-center rounded-md border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 transition" title="Copy raw command"><i class="fa-regular fa-copy text-xs"></i></button>
+                </div>
               </div>
               <p class="text-xs text-zinc-500 mb-3 leading-relaxed" x-text="item.description"></p>
               <pre @click="copy(item.command, $event)" class="cmd-block mt-auto cursor-pointer rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] font-mono text-emerald-300 whitespace-pre-wrap hover:border-emerald-500/30 transition"><code x-text="item.command"></code></pre>
@@ -825,7 +834,7 @@
         },
 
         /* ================= COPY ================= */
-        async copy(text, ev) {
+        async copy(text, ev, msg = 'Copied to clipboard') {
           const clean = String(text).replace(/^\s*\$\s+/gm, '').trim();
           try {
             await navigator.clipboard.writeText(clean);
@@ -835,7 +844,7 @@
             try { document.execCommand('copy'); } catch (e) {}
             document.body.removeChild(ta);
           }
-          this.showToast('Copied to clipboard');
+          this.showToast(msg);
           if (ev) {
             const btn = ev.currentTarget;
             const icon = btn.querySelector('i');
@@ -851,6 +860,29 @@
           this.toast.msg = msg; this.toast.show = true;
           clearTimeout(this.toast.t);
           this.toast.t = setTimeout(() => { this.toast.show = false; }, 1800);
+        },
+
+        /* ================= ALIAS FORMATTING ================= */
+        // Slugify a title into a safe zsh/bash alias name.
+        aliasName(title) {
+          return (String(title || 'cmd').toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/-{2,}/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 40)) || 'cmd';
+        },
+        // Build `alias name='command'` — identical syntax in zsh and bash.
+        formatAlias(item) {
+          const name = this.aliasName(item.title);
+          const raw = String(item.command).replace(/^\s*\$\s+/gm, '').trim();
+          // Collapse multi-line snippets into one chained line.
+          const oneLine = raw.split('\n').map(l => l.trim()).filter(Boolean).join(' && ');
+          // Safely escape single quotes for a single-quoted shell string.
+          const escaped = oneLine.replace(/'/g, `'\\''`);
+          return `alias ${name}='${escaped}'`;
+        },
+        copyAlias(item, ev) {
+          this.copy(this.formatAlias(item), ev, 'Copied as alias: ' + this.aliasName(item.title));
         },
 
         /* ================= K8S BUILDER ================= */
